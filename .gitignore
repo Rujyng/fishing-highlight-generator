@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# Environment variables / secrets
+.env
+*.env
+aws_credentials
+credentials
+
+# AWS / local config
+.aws/
+
+# Video files
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+
+# Generated outputs
+highlights/
+captioned/
+*_rekognition_result.json
+highlight_summary.json
+concat_list.txt
+temp_segment_*.mp4
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
