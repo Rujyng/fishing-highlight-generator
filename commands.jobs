@@ -1,0 +1,12 @@
+aws sts get-caller-identity
+ffmpeg -version
+ffprobe -version
+
+python rekog_test.py --video vids/live_fishing.mp4 --bucket rekognition-video-console-demo-cmh-323643917246-1783022243
+python rekog_test.py --video vids/live_fishing2.mp4 --bucket rekognition-video-console-demo-cmh-323643917246-1783022243
+
+python trim_highlight.py --json live_fishing_rekognition_result.json --video vids/live_fishing.mp4
+python trim_highlight.py --json live_fishing2_rekognition_result.json --video vids/live_fishing2.mp4
+
+python caption_highlights.py --input-dir highlights/live_fishing
+python caption_highlights.py --input-dir highlights/live_fishing2
