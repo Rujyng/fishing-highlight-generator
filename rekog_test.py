@@ -5,6 +5,8 @@ import uuid
 from collections import defaultdict
 from pathlib import Path
 
+from boto3.s3.transfer import TransferConfig
+from botocore.config import Config
 import boto3
 
 
@@ -31,7 +33,21 @@ OTHER_THRESHOLD = 80
 
 def upload_video(s3, video_path, bucket, key):
     print(f"Uploading video to s3://{bucket}/{key}")
-    s3.upload_file(str(video_path), bucket, key)
+
+    config = TransferConfig(
+        multipart_threshold=64 * 1024 * 1024,
+        multipart_chunksize=64 * 1024 * 1024,
+        max_concurrency=1,
+        use_threads=False
+    )
+
+    s3.upload_file(
+        str(video_path),
+        bucket,
+        key,
+        Config=config
+    )
+
     print("Upload complete.")
 
 
@@ -291,7 +307,6 @@ def make_candidates(scored_windows, min_score, pad_seconds):
                 "duration": end - start,
                 "score": item["score"],
                 "event_type": item["event_type"],
-                "flags": item["flags"],
                 "matched_labels": item["matched_labels"],
                 "reasons": item["reasons"],
                 "top_labels": item["top_labels"]
@@ -330,7 +345,15 @@ def main():
         args.output = f"{video_path.stem}_rekognition_result.json"
 
     # set up aws s3 and rekognition
-    s3 = boto3.client("s3", region_name=args.region)
+    s3 = boto3.client(
+        "s3",
+        region_name=args.region,
+        config=Config(
+            retries={"max_attempts": 10, "mode": "standard"},
+            connect_timeout=60,
+            read_timeout=300
+        )
+    )
     rekog = boto3.client("rekognition", region_name=args.region)
     s3_key = f"input/{uuid.uuid4().hex}-{video_path.name}"
 
