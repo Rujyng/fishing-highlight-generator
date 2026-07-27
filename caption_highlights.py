@@ -99,12 +99,16 @@ def write_srt(segments, srt_path, hold_seconds=0.5, max_words=7, max_duration=2.
 def burn_captions(video_path, srt_path, output_path, margin_v):
     output_rel = f"captioned/{output_path.name}"
 
+    subtitle_filter = (
+        f"subtitles=filename={srt_path.name}:"
+        f"force_style=Alignment=2\\,MarginV={margin_v}\\,Fontsize=22"
+    )
+
     command = [
         "ffmpeg",
         "-y",
         "-i", video_path.name,
-        "-vf",
-        f"subtitles={srt_path.name}:force_style='Alignment=2,MarginV={margin_v},Fontsize=22'",
+        "-vf", subtitle_filter,
         "-c:a", "copy",
         output_rel,
     ]

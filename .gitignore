@@ -36,3 +36,6 @@ temp_segment_*.mp4
 Thumbs.db
 .vscode/
 .idea/
+
+*.key
+*.json
