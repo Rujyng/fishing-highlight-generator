@@ -6,10 +6,15 @@ __pycache__/
 .venv/
 venv/
 env/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
 
 # Environment variables / secrets
 .env
 *.env
+secrets/
 aws_credentials
 credentials
 
@@ -24,9 +29,13 @@ credentials
 *.webm
 
 # Generated outputs
+json_results/
 highlights/
 captioned/
 *_rekognition_result.json
+*_gemini_result.json
+*_pegasus_result.json
+*_pegasus_fish_highlights.json
 highlight_summary.json
 concat_list.txt
 temp_segment_*.mp4
@@ -36,6 +45,8 @@ temp_segment_*.mp4
 Thumbs.db
 .vscode/
 .idea/
+~$*
+*.xlsx
 
 *.key
 *.json

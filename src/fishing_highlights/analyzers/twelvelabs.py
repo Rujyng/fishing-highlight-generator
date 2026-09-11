@@ -1,16 +1,20 @@
-import argparse
+from __future__ import annotations
+
 import json
 import os
-import subprocess
 import time
 from pathlib import Path
+
+from ..schema import build_analysis_result, rank_candidates
+from ..secrets import load_secret
+from ..settings import AnalysisSettings
+from ..video import build_windows, clamp, get_video_duration
 
 
 INTERESTING_EVENTS = {
     "fish_first_visible",
     "fish_shown_on_camera",
 }
-
 
 PROMPT = """
 Analyze this fishing video clip.
@@ -72,7 +76,6 @@ Strict rules:
 - start_offset and end_offset must be in seconds relative to this clip.
 """
 
-
 JSON_SCHEMA = {
     "type": "object",
     "properties": {
@@ -100,22 +103,7 @@ def get_attr(obj, name, default=None):
     return getattr(obj, name, default)
 
 
-def get_duration(video_path):
-    result = subprocess.run(
-        [
-            "ffprobe", "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            str(video_path),
-        ],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return float(result.stdout.strip())
-
-
-def upload_asset(client, video_path, video_url=None):
+def upload_asset(client, video_path: Path, video_url=None):
     if video_url:
         asset = client.assets.create(
             method="url",
@@ -145,21 +133,6 @@ def upload_asset(client, video_path, video_url=None):
 
         print("Waiting for TwelveLabs asset...")
         time.sleep(5)
-
-
-def build_windows(video_duration, window_seconds, stride_seconds):
-    windows = []
-    start = 0.0
-
-    while start < video_duration:
-        end = min(start + window_seconds, video_duration)
-
-        if end - start >= 4:
-            windows.append((round(start, 2), round(end, 2)))
-
-        start += stride_seconds
-
-    return windows
 
 
 def parse_json(value):
@@ -199,8 +172,57 @@ def analyze_window(client, asset_id, start, end, model_name, temperature):
     return parse_json(get_attr(response, "data"))
 
 
-def clamp(value, low, high):
-    return max(low, min(high, value))
+def is_retryable_error(error):
+    text = str(error).lower()
+    retryable_markers = (
+        "429",
+        "500",
+        "502",
+        "503",
+        "504",
+        "too_many_requests",
+        "rate limit",
+        "unavailable",
+        "internal",
+        "timeout",
+        "temporarily",
+    )
+    return any(marker in text for marker in retryable_markers)
+
+
+def analyze_window_with_retries(
+    client,
+    asset_id,
+    start,
+    end,
+    model_name,
+    temperature,
+    retries,
+    sleep_seconds,
+):
+    last_error = None
+
+    for attempt in range(1, retries + 1):
+        try:
+            return analyze_window(
+                client=client,
+                asset_id=asset_id,
+                start=start,
+                end=end,
+                model_name=model_name,
+                temperature=temperature,
+            )
+        except Exception as error:
+            last_error = error
+            if attempt >= retries or not is_retryable_error(error):
+                raise
+
+            wait_seconds = sleep_seconds * attempt
+            print(f"Temporary TwelveLabs error on attempt {attempt}/{retries}: {error}")
+            print(f"Retrying in {wait_seconds} seconds...")
+            time.sleep(wait_seconds)
+
+    raise last_error
 
 
 def to_bool(value):
@@ -251,47 +273,19 @@ def normalize_result(data, window_start, window_end, fish_seen, max_candidate_du
     }
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--video", required=True)
-    parser.add_argument("--asset-id", default=None)
-    parser.add_argument("--video-url", default=None)
-    parser.add_argument("--model-name", default="pegasus1.5")
-    parser.add_argument("--window-seconds", type=float, default=30)
-    parser.add_argument("--stride-seconds", type=float, default=15)
-    parser.add_argument("--min-score", type=int, default=75)
-    parser.add_argument("--max-candidate-duration", type=float, default=20)
-    parser.add_argument("--temperature", type=float, default=0)
-    parser.add_argument("--sleep-seconds", type=float, default=1)
-    parser.add_argument("--max-windows", type=int, default=None)
-    parser.add_argument("--output", default=None)
-
-    args = parser.parse_args()
-
-    video_path = Path(args.video)
-    if not video_path.exists():
-        raise FileNotFoundError(video_path)
-
-    api_key = os.getenv("TWELVELABS_API_KEY")
-    if not api_key:
-        raise RuntimeError("Missing TWELVELABS_API_KEY")
-
+def analyze_video(video_path: Path, settings: AnalysisSettings):
     from twelvelabs import TwelveLabs
 
+    api_key = os.getenv("TWELVELABS_API_KEY") or load_secret("twelvelabsAPI.key")
+    if not api_key:
+        raise RuntimeError("Set TWELVELABS_API_KEY or add secrets/twelvelabsAPI.key first")
+
     client = TwelveLabs(api_key=api_key)
-
-    video_duration = get_duration(video_path)
-    asset_id = args.asset_id or upload_asset(client, video_path, args.video_url)
-    output = args.output or f"{video_path.stem}_pegasus_fish_highlights.json"
-
-    windows = build_windows(
-        video_duration=video_duration,
-        window_seconds=args.window_seconds,
-        stride_seconds=args.stride_seconds,
-    )
-
-    if args.max_windows:
-        windows = windows[:args.max_windows]
+    video_duration = get_video_duration(video_path)
+    asset_id = settings.asset_id or upload_asset(client, video_path, settings.video_url)
+    windows = build_windows(video_duration, settings.window_seconds, settings.stride_seconds)
+    if settings.max_windows:
+        windows = windows[:settings.max_windows]
 
     scored = []
     candidates = []
@@ -301,13 +295,15 @@ def main():
         print(f"Analyzing {start}s-{end}s")
 
         try:
-            data = analyze_window(
+            data = analyze_window_with_retries(
                 client=client,
                 asset_id=asset_id,
                 start=start,
                 end=end,
-                model_name=args.model_name,
-                temperature=args.temperature,
+                model_name=settings.model_name,
+                temperature=settings.temperature,
+                retries=settings.retries,
+                sleep_seconds=settings.sleep_seconds,
             )
         except Exception as error:
             if "too_many_requests" in str(error) or "status_code: 429" in str(error):
@@ -321,7 +317,7 @@ def main():
             window_start=start,
             window_end=end,
             fish_seen=fish_seen,
-            max_candidate_duration=args.max_candidate_duration,
+            max_candidate_duration=settings.max_candidate_duration,
         )
 
         if item["ai_analysis"].get("has_fish", False):
@@ -329,7 +325,7 @@ def main():
 
         scored.append(item)
 
-        if item["score"] >= args.min_score and item["event_type"] in INTERESTING_EVENTS:
+        if item["score"] >= settings.min_score and item["event_type"] in INTERESTING_EVENTS:
             candidates.append(item.copy())
 
         print(
@@ -339,27 +335,10 @@ def main():
             f"reason={item['reasons'][0]}"
         )
 
-        time.sleep(args.sleep_seconds)
+        time.sleep(settings.sleep_seconds)
 
-    candidates.sort(key=lambda x: x["score"], reverse=True)
+    rank_candidates(candidates)
+    if windows and not scored:
+        raise RuntimeError("TwelveLabs analysis produced no scored windows; all requested windows failed.")
 
-    for rank, item in enumerate(candidates, start=1):
-        item["rank"] = rank
-        item["duration"] = round(item["end_sec"] - item["start_sec"], 2)
-
-    result = {
-        "video_name": video_path.name,
-        "video_stem": video_path.stem,
-        "candidate_highlights": candidates,
-        "all_scored_windows": scored,
-    }
-
-    with open(output, "w", encoding="utf-8") as file:
-        json.dump(result, file, indent=2)
-
-    print(f"Saved {output}")
-    print(f"Candidates: {len(candidates)}")
-
-
-if __name__ == "__main__":
-    main()
+    return build_analysis_result(video_path, candidates, scored)

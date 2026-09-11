@@ -2,21 +2,13 @@ aws sts get-caller-identity
 ffmpeg -version
 ffprobe -version
 
-python rekog_test.py --video vids/live_fishing.mp4 --bucket rekognition-video-console-demo-cmh-323643917246-1783022243
-python rekog_test.py --video vids/live_fishing2.mp4 --bucket rekognition-video-console-demo-cmh-323643917246-1783022243
+PYTHONPATH=src python -m fishing_highlights --analyzer gemini --video vids/live_fishing.mp4 --window-seconds 10 --min-score 90
+PYTHONPATH=src python -m fishing_highlights --analyzer gemini --video vids/live_fishing2.mp4 --window-seconds 10 --min-score 90
 
-python trim_highlight.py --json live_fishing_rekognition_result.json --video vids/live_fishing.mp4
-python trim_highlight.py --json live_fishing2_rekognition_result.json --video vids/live_fishing2.mp4
+PYTHONPATH=src python -m fishing_highlights --analyzer twelvelabs --video vids/live_fishing.mp4 --window-seconds 30 --stride-seconds 20
 
-python caption_highlights.py --input-dir highlights/live_fishing
-python caption_highlights.py --input-dir highlights/live_fishing2
+PYTHONPATH=src python -m fishing_highlights --analyzer rekognition --video vids/live_fishing.mp4 --bucket rekognition-video-console-demo-cmh-323643917246-1783022243
+PYTHONPATH=src python -m fishing_highlights --analyzer rekognition --video vids/live_fishing2.mp4 --bucket rekognition-video-console-demo-cmh-323643917246-1783022243
 
-python twelvelabs_prompt_analysis.py --video vids/live_fishing.mp4 --window-seconds 20 --stride-seconds 20 --min-score 95 --max-candidate-duration 45
-python trim_highlight.py --json live_fishing_pegasus_result.json --video vids/live_fishing.mp4 --min-score 75
-python twelvelabs_prompt_analysis.py --video vids/live_fishing.mp4 --window-seconds 30 --stride-seconds 20
-python trim_highlight.py --json live_fishing_pegasus_result.json --video vids/live_fishing.mp4 --min-score 75
-
-python gemini_prompt_analysis.py --video vids/live_fishing.mp4 --window-seconds 10 --min-score 90
-python gemini_prompt_analysis.py --video vids/live_fishing2.mp4 --window-seconds 10 --min-score 90
-python trim_highlight.py --json live_fishing_gemini_result.json --video vids/live_fishing.mp4 --min-score 94 --pad 5 --merge-gap 20 --max-duration 120
-python trim_highlight.py --json live_fishing2_gemini_result.json --video vids/live_fishing2.mp4 --min-score 94 --pad 5 --merge-gap 20 --max-duration 120
+PYTHONPATH=src python -m fishing_highlights --video vids/live_fishing.mp4 --create-highlights
+PYTHONPATH=src python -m fishing_highlights --video vids/live_fishing.mp4 --include-captions
